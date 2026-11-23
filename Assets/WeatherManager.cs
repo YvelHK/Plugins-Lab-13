@@ -1,28 +1,43 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
+using TMPro;
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.Networking;
-using System.Xml;
-using System.Xml.Serialization;
-using UnityEditor;
-using System.IO;
+using UnityEngine.Rendering;
 
 public class WeatherManager : MonoBehaviour
 {
-    XmlSerializer serializer = new XmlSerializer(typeof(Current));
+    [SerializeField] string[] weathertypes;
+    [SerializeField] Material[] weatherMats;
+    [SerializeField] TMP_Text text;
     enum locations
     {
         Orlando,
         Paris,
         Naxos,
         Nara,
-        Vancouver,
+        Whistler,
     }
 
     string[] locStrings = { "Orlando, us", "Paris, fr", "Naxos, gr", "Nara, jp", "Whistler, ca"};
-    [SerializeField] locations location;
+    locations location = locations.Whistler;
 
+    private void Start()
+    {
+        NextCity();
+    }
+
+    public void NextCity()
+    {
+        if (location == locations.Whistler)
+            location = locations.Orlando;
+        else
+            location++;
+        text.text = "Current City: " + location.ToString();
+        StartCoroutine(GetWeatherJSON(OnJSONDataLoaded));
+
+    }
     private IEnumerator CallAPI(string url, Action<string> callback)
     {
         using (UnityWebRequest request = UnityWebRequest.Get(url))
@@ -43,120 +58,90 @@ public class WeatherManager : MonoBehaviour
         }
     }
 
-    public IEnumerator GetWeatherXML(Action<string> callback)
+    public IEnumerator GetWeatherJSON(Action<string> callback)
     {
-        return CallAPI("http://api.openweathermap.org/data/2.5/weather?q=" + locStrings[(int) location] + "&mode=xml&appid=553960262dfabc41c7b7baa6e8023ed0", callback);
+        return CallAPI("http://api.openweathermap.org/data/2.5/weather?q=" + locStrings[(int) location] + "&mode=json&appid=553960262dfabc41c7b7baa6e8023ed0", callback);
     }
 
-    private void Start()
+    public void OnJSONDataLoaded(string data)
     {
-        for (int i = 0; i < 5; i++)
-        {
-            location = (locations) i;
-            StartCoroutine(GetWeatherXML(OnXMLDataLoaded));
-        }
+        JSONReturn results = JsonUtility.FromJson<JSONReturn>(data);
+        SetScene(results);
     }
 
-    public void OnXMLDataLoaded(string data)
+    private void SetScene(JSONReturn json)
     {
-        Current current;
-        using (TextReader reader = new StringReader(data))
-        {
-            current = (Current)serializer.Deserialize(reader);
-        }
-        Debug.Log(current.clouds.name);
+        switch (json.weather[0].main) {
+            case "Clear": // Day
+                RenderSettings.skybox = weatherMats[0];
+                break;
+
+            case "Thunderstorm": // Rain
+            case "Drizzle":
+            case "Rain":
+            case "Tornado":
+                RenderSettings.skybox = weatherMats[1];
+                break;
+
+            case "Snow": // Snow
+                RenderSettings.skybox = weatherMats[2];
+                break;
+
+            default: // Day Sunless
+                RenderSettings.skybox = weatherMats[3];
+                break;
+    }
     }
 
-    [XmlRoot(ElementName = "current")] public class Current
+    [Serializable] public class JSONReturn
     {
-        [XmlElement("city")] public City city;
-        [XmlElement("temperature")] public Temperature temperature;
-        [XmlElement("feels_like")] public Measurement feelsLike;
-        [XmlElement("humidity")] public Measurement humidity;
-        [XmlElement("pressure")] public Measurement pressure;
-        [XmlElement("wind")] public Wind wind;
-        [XmlElement("clouds")] public Clouds clouds;
-        [XmlElement("visibility")] public SingleValue visibility;
-        [XmlElement("precipitation")] public Precipitation precipitation;
-        [XmlElement("weather")] public Weather weather;
-        [XmlElement("lastupdate")] public SingleValue lastUpdate;
+        public Coord coord;
+        public Weather[] weather;
+        public Main main;
+        public int visibility;
+        public Wind wind;
+        public Rain rain;
+        public Clouds clouds;
+        public int dt, timezone, id, cod;
+        public Sys sys;
+        public string name;
     }
 
-    public class City
+    [Serializable] public class Sys
     {
-        [XmlElement("id")]public int id;
-        [XmlElement("name")] public string name;
-        [XmlElement("coord")] public Coord coord;
-        [XmlElement("country")] public string country;
-        [XmlElement("timezone")] public int timezone;
-        [XmlElement("sun")] public Sun sun;
+        public int type, id, sunrise, sunset;
+        public string country { get; set; }
     }
 
-    public class Coord
+    [Serializable] public class Coord
     {
-        [XmlElement("lon")] public int lon;
-        [XmlElement("lat")] public int lat;
+        public float lon, lat;
     }
 
-    public class Sun
+    [Serializable] public class Main
     {
-        [XmlElement("rise")] public string rise;
-        [XmlElement("set")] public string set;
+        public float temp, feels_like, temp_min, temp_max, pressure, humidity, sea_level, grnd_level;
     }
 
-    public class Temperature
+    [Serializable] public class Wind
     {
-        [XmlElement("value")] public float value;
-        [XmlElement("min")] public float min;
-        [XmlElement("max")] public float max;
-        [XmlElement("unit")] public string unit;
+        public float speed, deg, gust;
     }
 
-    public class Measurement // Used for FeelsLike, Humidity, and Pressure
+    [Serializable] public class Rain
     {
-        [XmlElement("value")] public float value;
-        [XmlElement("unit")] public string unit;
+        public float _1h;
     }
 
-    public class Wind
+    [Serializable] public class Clouds
     {
-        [XmlElement("speed")] public WindSpeed speed;
-        [XmlElement("gusts")] public SingleValue gusts;
-        [XmlElement("direction")] public WindDirection direction;
+        public int all;
     }
 
-    public class WindSpeed
+    [Serializable] public class Weather
     {
-        [XmlElement("value")] public float value;
-        [XmlElement("unit")] public string unit;
-        [XmlElement("name")] public string name;
-    }
-    public class WindDirection
-    {
-        [XmlElement("value")] public float value;
-        [XmlElement("code")] public string code;
-        [XmlElement("name")] public string name;
-    }
-    public class Clouds
-    {
-        [XmlElement("value")] public float value;
-        [XmlElement("name")] public string name;
-    }
-    public class Precipitation
-    {
-        [XmlElement("value")] public float value;
-        [XmlElement("mode")] public string mode;
-        [XmlElement("unit")] public string unit;
-    }
-    public class Weather
-    {
-        [XmlElement("number")] public int number;
-        [XmlElement("value")] public string value;
-        [XmlElement("icon")] public string icon;
-    }
-    public class SingleValue // Used for gusts and lastupdate
-    {
-        [XmlElement("value")] public string value;
+        public int id;
+        public string main, description, icon;
     }
 
 }
